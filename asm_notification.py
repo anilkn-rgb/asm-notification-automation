@@ -10,10 +10,22 @@ from datetime import datetime
 def download_asm_directly():
     """Download the ASM PDF directly from the known email"""
     
-    GMAIL_USER = "anil.kn@etssecurities.com"
-    GMAIL_APP_PASSWORD = "lymu sjca qnzf vose"
-    WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAAAhPquChA/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=WxHW1xhb0p9ou1a8FVNoHP0UaNVxj7RhthcuqHPhwZw"
-    DOWNLOAD_FOLDER = r"D:\new python folder\ASM alerts"
+    # Get credentials from environment variables (GitHub Secrets)
+    GMAIL_USER = os.environ.get('GMAIL_USER')
+    GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD')
+    WEBHOOK_URL = os.environ.get('WEBHOOK_URL')
+    
+    # Validate that all secrets are available
+    if not all([GMAIL_USER, GMAIL_APP_PASSWORD, WEBHOOK_URL]):
+        print("❌ Missing required environment variables!")
+        print(f"GMAIL_USER: {'✅' if GMAIL_USER else '❌'}")
+        print(f"GMAIL_APP_PASSWORD: {'✅' if GMAIL_APP_PASSWORD else '❌'}")
+        print(f"WEBHOOK_URL: {'✅' if WEBHOOK_URL else '❌'}")
+        return
+    
+    # Create download folder in current directory (GitHub Actions environment)
+    DOWNLOAD_FOLDER = "asm_downloads"
+    os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
     
     print("🚀 DOWNLOADING ASM PDF DIRECTLY")
     print("=" * 50)
@@ -26,11 +38,22 @@ def download_asm_directly():
         mail.select('inbox')
         print("✅ Connected to Gmail")
         
-        # Target the specific email we found: UID 908
-        target_uid = '908'
+        # Search for ASM emails instead of using hardcoded UID
+        print("🔍 Searching for recent ASM emails...")
+        search_criteria = '(SUBJECT "ASM" FROM "nse")'
+        result, email_ids = mail.search(None, search_criteria)
         
-        print(f"📧 Fetching email UID {target_uid}...")
-        result, msg_data = mail.fetch(target_uid, '(RFC822)')
+        if result == 'OK' and email_ids[0]:
+            # Get the most recent email (last in the list)
+            latest_email_id = email_ids[0].split()[-1]
+            print(f"📧 Found email ID: {latest_email_id.decode()}")
+        else:
+            # Fallback to the hardcoded UID if search fails
+            print("⚠️ Search failed, using fallback UID 908")
+            latest_email_id = b'908'
+        
+        print(f"📧 Fetching email...")
+        result, msg_data = mail.fetch(latest_email_id, '(RFC822)')
         
         if result == 'OK':
             email_message = email.message_from_bytes(msg_data[0][1])
@@ -44,13 +67,14 @@ def download_asm_directly():
                     filename = part.get_filename()
                     
                     if filename and 'ASM' in filename and filename.lower().endswith('.pdf'):
-                        print(f"📎 Found ASM PDF: {filename}")
+                        print(f"🔍 Found ASM PDF: {filename}")
                         
                         # Get attachment data
                         attachment_data = part.get_payload(decode=True)
                         
-                        # Save to folder
-                        pdf_path = os.path.join(DOWNLOAD_FOLDER, "ASM_2025-08-13.pdf")
+                        # Save to folder (with current date)
+                        current_date = datetime.now().strftime("%Y-%m-%d")
+                        pdf_path = os.path.join(DOWNLOAD_FOLDER, f"ASM_{current_date}.pdf")
                         
                         with open(pdf_path, 'wb') as f:
                             f.write(attachment_data)
@@ -59,7 +83,7 @@ def download_asm_directly():
                         pdf_downloaded = True
                         
                         # Now extract data from PDF
-                        print("\n🔍 EXTRACTING DATA FROM PDF")
+                        print("\n📄 EXTRACTING DATA FROM PDF")
                         print("=" * 30)
                         
                         # Read PDF content
@@ -108,14 +132,14 @@ def download_asm_directly():
                         
                         # Create message
                         if client_data:
-                            message = "ASM as on August 13, 2025\n\n"
+                            message = f"ASM as on {current_date}\n\n"
                             message += "Client Code / Additional Surveillance Margin:\n"
                             for client in client_data:
                                 message += f"{client['client_code']}: ₹{client['additional_margin']} Cr\n"
                             if ref_number:
                                 message += f"\nReference: {ref_number}"
                         else:
-                            message = "ASM is NIL for August 13, 2025"
+                            message = f"ASM is NIL for {current_date}"
                         
                         print(f"\n📤 MESSAGE TO SEND:")
                         print("=" * 30)
@@ -147,6 +171,25 @@ def download_asm_directly():
             
             if not pdf_downloaded:
                 print("❌ No ASM PDF found in email")
+                # Send notification that no ASM was found
+                try:
+                    current_date = datetime.now().strftime("%Y-%m-%d")
+                    message = f"No ASM PDF found for {current_date}"
+                    payload = {"text": message}
+                    data = json.dumps(payload).encode('utf-8')
+                    
+                    req = urllib.request.Request(
+                        WEBHOOK_URL,
+                        data=data,
+                        headers={'Content-Type': 'application/json'}
+                    )
+                    
+                    context = ssl.create_default_context()
+                    with urllib.request.urlopen(req, context=context, timeout=30) as response:
+                        if response.getcode() == 200:
+                            print("✅ 'No ASM' notification sent successfully!")
+                except Exception as e:
+                    print(f"❌ Error sending 'No ASM' notification: {e}")
         else:
             print("❌ Failed to fetch email")
         
@@ -156,6 +199,24 @@ def download_asm_directly():
         
     except Exception as e:
         print(f"❌ Error: {e}")
+        # Send error notification
+        try:
+            error_message = f"ASM Script Error: {str(e)}"
+            payload = {"text": error_message}
+            data = json.dumps(payload).encode('utf-8')
+            
+            req = urllib.request.Request(
+                WEBHOOK_URL,
+                data=data,
+                headers={'Content-Type': 'application/json'}
+            )
+            
+            context = ssl.create_default_context()
+            with urllib.request.urlopen(req, context=context, timeout=30) as response:
+                if response.getcode() == 200:
+                    print("✅ Error notification sent successfully!")
+        except Exception as notify_error:
+            print(f"❌ Failed to send error notification: {notify_error}")
 
 if __name__ == "__main__":
     download_asm_directly()
