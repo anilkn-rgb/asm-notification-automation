@@ -1,0 +1,40 @@
+name: ASM Notification Automation
+
+on:
+  schedule:
+    # Run daily at 10 AM IST (4:30 AM UTC)
+    - cron: '30 4 * * *'
+  workflow_dispatch:  # Allows manual triggering for testing
+
+jobs:
+  run-asm-script:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # No external dependencies needed - using standard library only
+        
+    - name: Run ASM notification script
+      env:
+        GMAIL_USER: ${{ secrets.GMAIL_USER }}
+        GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+      run: python asm_notification.py
+      
+    - name: Upload downloaded PDFs (optional)
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: asm-pdfs
+        path: asm_downloads/
+        retention-days: 7
