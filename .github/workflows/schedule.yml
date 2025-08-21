@@ -32,9 +32,9 @@ jobs:
       run: python asm_notification.py
       
     - name: Upload downloaded PDFs (optional)
-      uses: actions/upload-artifact@v3
-      if: always()
+      uses: actions/upload-artifact@v4
+      if: always()  # Upload even if script fails
       with:
         name: asm-pdfs
         path: asm_downloads/
-        retention-days: 7
+        retention-days: 7  # Keep for 7 days
